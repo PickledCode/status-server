@@ -85,10 +85,8 @@ type fileDB struct {
 
 func (f *fileDB) AddUser(email, password string) error {
 	return f.mutate("add user", func() error {
-		for _, user := range f.UserRecords {
-			if emailsEquivalent(user.Email, email) {
-				return errors.New("email already in use")
-			}
+		if f.findUser(email) != nil {
+			return errors.New("email already in use")
 		}
 		f.UserRecords = append(f.UserRecords, &UserInfo{
 			Email:        email,
