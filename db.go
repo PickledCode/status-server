@@ -241,16 +241,6 @@ func (f *fileDB) mutate(ctx string, mutator func() error) (err error) {
 	f.Lock.Lock()
 	defer f.Lock.Unlock()
 
-	var backup []*UserInfo
-	for _, info := range f.UserRecords {
-		backup = append(backup, info.Copy())
-	}
-	defer func() {
-		if err != nil {
-			f.UserRecords = backup
-		}
-	}()
-
 	if err := mutator(); err != nil {
 		return essentials.AddCtx(ctx, err)
 	}
