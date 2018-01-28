@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/unixpickle/essentials"
 )
 
@@ -38,8 +40,8 @@ type UserStatus struct {
 // This does not include information that relies on a
 // a user's current connection.
 type UserInfo struct {
-	Email        string
-	PasswordHash string
+	Email string
+	Hash  []byte
 
 	VerifyToken string
 	Verified    bool
@@ -88,9 +90,13 @@ func (f *fileDB) AddUser(email, password string) error {
 		if f.findUser(email) != nil {
 			return errors.New("email already in use")
 		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
 		f.UserRecords = append(f.UserRecords, &UserInfo{
-			Email:        email,
-			PasswordHash: hashPassword(password),
+			Email: email,
+			Hash:  hash,
 
 			// TODO: support verification.
 			Verified: true,
@@ -110,14 +116,8 @@ func (f *fileDB) CheckLogin(email, password string) (err error) {
 	defer essentials.AddCtxTo("check login", &err)
 	f.Lock.RLock()
 	defer f.Lock.RUnlock()
-	for _, user := range f.UserRecords {
-		if emailsEquivalent(user.Email, email) {
-			if hashPassword(password) == user.PasswordHash {
-				return nil
-			} else {
-				return ErrPassword
-			}
-		}
+	if user := f.findUser(email); user != nil {
+		return bcrypt.CompareHashAndPassword(user.Hash, []byte(password))
 	}
 	return ErrNoEmail
 }
@@ -134,11 +134,14 @@ func (f *fileDB) GetUserInfo(email string) (*UserInfo, error) {
 func (f *fileDB) SetPassword(email, oldPass, newPass string) error {
 	return f.mutate("set password", func() error {
 		if user := f.findUser(email); user != nil {
-			if hashPassword(oldPass) == user.PasswordHash {
-				user.PasswordHash = hashPassword(newPass)
-			} else {
-				return ErrPassword
+			if err := bcrypt.CompareHashAndPassword(user.Hash, []byte(oldPass)); err != nil {
+				return err
 			}
+			hash, err := bcrypt.GenerateFromPassword([]byte(newPass), bcrypt.DefaultCost)
+			if err != nil {
+				return err
+			}
+			user.Hash = hash
 		}
 		return ErrNoEmail
 	})
