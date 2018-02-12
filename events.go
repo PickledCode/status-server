@@ -201,8 +201,10 @@ func (l *localDBSession) Close() error {
 	for i, sess := range l.eventDB.sessions {
 		if sess == l {
 			essentials.UnorderedDelete(&l.eventDB.sessions, i)
-			l.eventDB.broadcastNewStatus(l.email,
-				&UserStatus{Availability: Offline, Time: time.Now()})
+			if !l.eventDB.userOnline(l.email) {
+				l.eventDB.broadcastNewStatus(l.email,
+					&UserStatus{Availability: Offline, Time: time.Now()})
+			}
 			return nil
 		}
 	}
