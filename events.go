@@ -69,6 +69,8 @@ type DBSession interface {
 	DeleteBuddy(email string) error
 	SetStatus(status UserStatus) error
 
+	Close() error
+
 	// Intentionally disconnect all the other DBSessions for
 	// this user.
 	DisconnectOthers() error
