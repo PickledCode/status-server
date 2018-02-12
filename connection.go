@@ -1,12 +1,5 @@
 package main
 
-import (
-	"io"
-	"sync"
-)
-
-const StateBufferSize = 10
-
 const (
 	// Client messages.
 	MsgTypeLogin         = "login"
@@ -38,12 +31,6 @@ const (
 	MsgTypeStatusChanged   = "status_changed"
 )
 
-var ControlMessages = []string{MsgTypeLoginSuccess, MsgTypeLoginFailure, MsgTypeForcedLogout,
-	MsgTypeNoSuchEmail, MsgTypeSetPasswordSuccess, MsgTypeSetPasswordFailure}
-
-// A StateGetter gets the full state for a user.
-type StateGetter func() (interface{}, error)
-
 // A Connection communicates with a remote client in a
 // blocking manner.
 type Connection interface {
@@ -60,126 +47,4 @@ type Connection interface {
 	// This should unblock any blocking ReadMessage() and
 	// WriteMessage() calls.
 	Close() error
-}
-
-// A BufferedConnection wraps a Connection and ensures
-// that a slow-reading client cannot hold up outgoing
-// state messages.
-type BufferedConnection struct {
-	Connection
-
-	stateSendLock sync.Mutex
-	stateGetter   func() (interface{}, error)
-	stateSends    chan *message
-
-	controlSends chan *message
-
-	closeLock sync.Mutex
-	closeChan chan struct{}
-}
-
-// NewBufferedConnection creates a BufferedConnection with
-// the underlying unbuffered connection, conn.
-//
-// Closing the result will close conn.
-func NewBufferedConnection(conn Connection, states StateGetter) *BufferedConnection {
-	res := &BufferedConnection{
-		Connection:   conn,
-		stateGetter:  states,
-		stateSends:   make(chan *message, StateBufferSize),
-		controlSends: make(chan *message),
-		closeChan:    make(chan struct{}),
-	}
-	go res.writeLoop()
-	return res
-}
-
-// WriteMessage sends a message to the remote.
-//
-// When a state message is sent, it is added to a buffer.
-// If the buffer fills up, the buffer is dumped and a full
-// state message is put into the buffer instead.
-//
-// When a control message is sent, the send may block.
-// Control messages are high-priority, ensuring that state
-// messages can't starve control messages.
-func (b *BufferedConnection) WriteMessage(msgType string, msgData interface{}) error {
-	for _, t := range ControlMessages {
-		if t == msgType {
-			select {
-			case b.controlSends <- &message{msgType, msgData}:
-			case <-b.closeChan:
-				return io.ErrClosedPipe
-			}
-			return nil
-		}
-	}
-
-	b.stateSendLock.Lock()
-	defer b.stateSendLock.Unlock()
-	select {
-	case b.stateSends <- &message{msgType, msgData}:
-		return nil
-	default:
-		fullState, err := b.stateGetter()
-		if err != nil {
-			return err
-		}
-		for _ = range b.stateSends {
-		}
-		b.stateSends <- &message{MsgTypeFullState, fullState}
-	}
-	return nil
-}
-
-// Close disconnects from the remote.
-func (b *BufferedConnection) Close() error {
-	b.closeLock.Lock()
-	defer b.closeLock.Unlock()
-	select {
-	case <-b.closeChan:
-	default:
-		b.Connection.Close()
-		close(b.closeChan)
-	}
-	return nil
-}
-
-func (b *BufferedConnection) writeLoop() {
-	for {
-		msg := b.nextOutgoing()
-		if msg == nil {
-			return
-		}
-		if err := b.Connection.WriteMessage(msg.Type, msg.Data); err != nil {
-			b.Close()
-			return
-		}
-	}
-}
-
-func (b *BufferedConnection) nextOutgoing() *message {
-	select {
-	case <-b.closeChan:
-		return nil
-	default:
-	}
-	select {
-	case msg := <-b.controlSends:
-		return msg
-	default:
-	}
-	select {
-	case <-b.closeChan:
-		return nil
-	case msg := <-b.controlSends:
-		return msg
-	case msg := <-b.stateSends:
-		return msg
-	}
-}
-
-type message struct {
-	Type string
-	Data interface{}
 }
