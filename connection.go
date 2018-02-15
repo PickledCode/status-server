@@ -7,6 +7,8 @@ type Connection interface {
 	ReadMessage() (message Message, err error)
 
 	// WriteMessage writes a message to the remote.
+	//
+	// Multiple clients may write at the same time.
 	WriteMessage(message Message) error
 
 	// Close disconnects from the remote.
