@@ -169,8 +169,13 @@ func (l *localDBSession) Events() <-chan *Event {
 }
 
 func (l *localDBSession) SetPassword(oldPass, newPass string) error {
-	// TODO: this.
-	return errors.New("nyi")
+	return l.genericOperation("set password", func() error {
+		if err := l.eventDB.db.SetPassword(l.email, oldPass, newPass); err != nil {
+			return err
+		}
+		l.disconnectOthers()
+		return nil
+	})
 }
 
 func (l *localDBSession) SendRequest(email string) error {
@@ -228,17 +233,21 @@ func (l *localDBSession) Close() (err error) {
 
 func (l *localDBSession) DisconnectOthers() error {
 	return l.genericOperation("disconnect others", func() error {
-		for i := 0; i < len(l.eventDB.sessions); i++ {
-			sess := l.eventDB.sessions[i]
-			if sess != l && emailsEquivalent(sess.email, l.email) {
-				sess.intentionalDiscon = true
-				sess.clearAndPush(&Event{Type: EventIntentionalDisconnect})
-				essentials.OrderedDelete(&l.eventDB.sessions, i)
-				i--
-			}
-		}
+		l.disconnectOthers()
 		return nil
 	})
+}
+
+func (l *localDBSession) disconnectOthers() {
+	for i := 0; i < len(l.eventDB.sessions); i++ {
+		sess := l.eventDB.sessions[i]
+		if sess != l && emailsEquivalent(sess.email, l.email) {
+			sess.intentionalDiscon = true
+			sess.clearAndPush(&Event{Type: EventIntentionalDisconnect})
+			essentials.OrderedDelete(&l.eventDB.sessions, i)
+			i--
+		}
+	}
 }
 
 func (l *localDBSession) genericOperation(ctx string, f func() error) (err error) {
