@@ -188,9 +188,22 @@ func (l *localDBSession) DeleteBuddy(email string) error {
 	return errors.New("nyi")
 }
 
-func (l *localDBSession) SetStatus(status UserStatus) error {
-	// TODO: this.
-	return errors.New("nyi")
+func (l *localDBSession) SetStatus(status UserStatus) (err error) {
+	defer essentials.AddCtxTo("set status", &err)
+	if status.Availability != Available && status.Availability != Away {
+		return errors.New("invalid availability")
+	}
+	l.eventDB.lock.Lock()
+	defer l.eventDB.lock.Unlock()
+	if err := l.globalOperationErr(); err != nil {
+		return err
+	}
+	status.Time = time.Now()
+	if err := l.eventDB.db.SetStatus(l.email, status); err != nil {
+		return err
+	}
+	l.eventDB.broadcastNewStatus(l.email, &status)
+	return nil
 }
 
 func (l *localDBSession) Close() (err error) {
@@ -221,10 +234,8 @@ func (l *localDBSession) DisconnectOthers() (err error) {
 	l.eventDB.lock.Lock()
 	defer l.eventDB.lock.Unlock()
 	defer essentials.AddCtxTo("disconnect others", &err)
-	if l.closed {
-		return ErrNotOpen
-	} else if l.intentionalDiscon {
-		return ErrIntentionalDisconnect
+	if err := l.globalOperationErr(); err != nil {
+		return err
 	}
 	for i := 0; i < len(l.eventDB.sessions); i++ {
 		sess := l.eventDB.sessions[i]
@@ -275,4 +286,14 @@ func (l *localDBSession) fullStateEvent() (*Event, error) {
 		statuses[i] = l.eventDB.maskUserStatus(userInfo.Buddies[i], status)
 	}
 	return &Event{Type: EventFullState, UserInfo: userInfo, BuddyStatuses: statuses}, nil
+}
+
+func (l *localDBSession) globalOperationErr() error {
+	if l.closed {
+		return ErrNotOpen
+	} else if l.intentionalDiscon {
+		return ErrIntentionalDisconnect
+	} else {
+		return nil
+	}
 }
