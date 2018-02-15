@@ -37,11 +37,11 @@ type Event struct {
 
 	// For full-state events.
 	UserInfo      *UserInfo
-	BuddyStatuses []*UserStatus
+	BuddyStatuses []UserStatus
 
 	// For events pertaining to a single user.
 	Email  string
-	Status *UserStatus
+	Status UserStatus
 
 	ErrorMessage string
 }
@@ -114,11 +114,11 @@ func (l *localEventDB) BeginSession(email, password string) (DBSession, error) {
 	return res, nil
 }
 
-func (l *localEventDB) maskUserStatus(email string, status *UserStatus) *UserStatus {
+func (l *localEventDB) maskUserStatus(email string, status UserStatus) UserStatus {
 	if l.userOnline(email) {
 		return status
 	}
-	return &UserStatus{Availability: Offline, Time: time.Now()}
+	return UserStatus{Availability: Offline, Time: time.Now()}
 }
 
 func (l *localEventDB) userOnline(email string) bool {
@@ -130,7 +130,7 @@ func (l *localEventDB) userOnline(email string) bool {
 	return false
 }
 
-func (l *localEventDB) broadcastNewStatus(email string, status *UserStatus) {
+func (l *localEventDB) broadcastNewStatus(email string, status UserStatus) {
 	info, err := l.db.GetUserInfo(email)
 	if err != nil {
 		l.cannotBroadcast()
@@ -229,14 +229,11 @@ func (l *localDBSession) DeleteBuddy(email string) error {
 
 func (l *localDBSession) SetStatus(status UserStatus) (err error) {
 	return l.genericOperation("set status", func() error {
-		if status.Availability != Available && status.Availability != Away {
-			return errors.New("invalid availability")
-		}
 		status.Time = time.Now()
 		if err := l.eventDB.db.SetStatus(l.email, status); err != nil {
 			return err
 		}
-		l.eventDB.broadcastNewStatus(l.email, &status)
+		l.eventDB.broadcastNewStatus(l.email, status)
 		return nil
 	})
 }
@@ -257,7 +254,7 @@ func (l *localDBSession) Close() (err error) {
 			essentials.UnorderedDelete(&l.eventDB.sessions, i)
 			if !l.eventDB.userOnline(l.email) {
 				l.eventDB.broadcastNewStatus(l.email,
-					&UserStatus{Availability: Offline, Time: time.Now()})
+					UserStatus{Availability: Offline, Time: time.Now()})
 			}
 			return nil
 		}

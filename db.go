@@ -76,7 +76,7 @@ type DB interface {
 	DeleteBuddy(email, other string) error
 
 	SetStatus(email string, status UserStatus) error
-	GetStatuses(emails []string) ([]*UserStatus, error)
+	GetStatuses(emails []string) ([]UserStatus, error)
 }
 
 type fileDB struct {
