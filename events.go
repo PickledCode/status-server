@@ -55,6 +55,11 @@ type Event struct {
 // be waiting with the state at the beginning of the
 // session.
 type EventDB interface {
+	// These are the only DB calls which cannot be run inside
+	// of a session.
+	AddUser(email, password string) error
+	VerifyUser(email, token string) error
+
 	BeginSession(email, password string) (DBSession, error)
 }
 
@@ -94,6 +99,14 @@ type localEventDB struct {
 	sessions   []*localDBSession
 	db         DB
 	bufferSize int
+}
+
+func (l *localEventDB) AddUser(email, password string) error {
+	return l.db.AddUser(email, password)
+}
+
+func (l *localEventDB) VerifyUser(email, token string) error {
+	return l.db.VerifyUser(email, token)
 }
 
 func (l *localEventDB) BeginSession(email, password string) (DBSession, error) {
