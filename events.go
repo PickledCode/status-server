@@ -189,21 +189,17 @@ func (l *localDBSession) DeleteBuddy(email string) error {
 }
 
 func (l *localDBSession) SetStatus(status UserStatus) (err error) {
-	defer essentials.AddCtxTo("set status", &err)
-	if status.Availability != Available && status.Availability != Away {
-		return errors.New("invalid availability")
-	}
-	l.eventDB.lock.Lock()
-	defer l.eventDB.lock.Unlock()
-	if err := l.globalOperationErr(); err != nil {
-		return err
-	}
-	status.Time = time.Now()
-	if err := l.eventDB.db.SetStatus(l.email, status); err != nil {
-		return err
-	}
-	l.eventDB.broadcastNewStatus(l.email, &status)
-	return nil
+	return l.genericOperation("set status", func() error {
+		if status.Availability != Available && status.Availability != Away {
+			return errors.New("invalid availability")
+		}
+		status.Time = time.Now()
+		if err := l.eventDB.db.SetStatus(l.email, status); err != nil {
+			return err
+		}
+		l.eventDB.broadcastNewStatus(l.email, &status)
+		return nil
+	})
 }
 
 func (l *localDBSession) Close() (err error) {
@@ -230,23 +226,32 @@ func (l *localDBSession) Close() (err error) {
 	panic("internal inconsistency: DBSession missing from list")
 }
 
-func (l *localDBSession) DisconnectOthers() (err error) {
+func (l *localDBSession) DisconnectOthers() error {
+	return l.genericOperation("disconnect others", func() error {
+		for i := 0; i < len(l.eventDB.sessions); i++ {
+			sess := l.eventDB.sessions[i]
+			if sess != l && emailsEquivalent(sess.email, l.email) {
+				sess.intentionalDiscon = true
+				sess.clearAndPush(&Event{Type: EventIntentionalDisconnect})
+				essentials.OrderedDelete(&l.eventDB.sessions, i)
+				i--
+			}
+		}
+		return nil
+	})
+}
+
+func (l *localDBSession) genericOperation(ctx string, f func() error) (err error) {
+	defer essentials.AddCtxTo(ctx, &err)
 	l.eventDB.lock.Lock()
 	defer l.eventDB.lock.Unlock()
-	defer essentials.AddCtxTo("disconnect others", &err)
-	if err := l.globalOperationErr(); err != nil {
-		return err
+	if l.closed {
+		return ErrNotOpen
+	} else if l.intentionalDiscon {
+		return ErrIntentionalDisconnect
+	} else {
+		return f()
 	}
-	for i := 0; i < len(l.eventDB.sessions); i++ {
-		sess := l.eventDB.sessions[i]
-		if sess != l && emailsEquivalent(sess.email, l.email) {
-			sess.intentionalDiscon = true
-			sess.clearAndPush(&Event{Type: EventIntentionalDisconnect})
-			essentials.OrderedDelete(&l.eventDB.sessions, i)
-			i--
-		}
-	}
-	return nil
 }
 
 func (l *localDBSession) pushEvent(e *Event) {
@@ -286,14 +291,4 @@ func (l *localDBSession) fullStateEvent() (*Event, error) {
 		statuses[i] = l.eventDB.maskUserStatus(userInfo.Buddies[i], status)
 	}
 	return &Event{Type: EventFullState, UserInfo: userInfo, BuddyStatuses: statuses}, nil
-}
-
-func (l *localDBSession) globalOperationErr() error {
-	if l.closed {
-		return ErrNotOpen
-	} else if l.intentionalDiscon {
-		return ErrIntentionalDisconnect
-	} else {
-		return nil
-	}
 }
