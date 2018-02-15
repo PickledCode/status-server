@@ -147,6 +147,14 @@ func (l *localEventDB) broadcastNewStatus(email string, status *UserStatus) {
 	}
 }
 
+func (l *localEventDB) pushToUser(email string, event *Event) {
+	for _, sess := range l.sessions {
+		if emailsEquivalent(sess.email, email) {
+			sess.pushEvent(event)
+		}
+	}
+}
+
 func (l *localEventDB) cannotBroadcast() {
 	for _, sess := range l.sessions {
 		sess.pushEvent(&Event{
@@ -179,18 +187,44 @@ func (l *localDBSession) SetPassword(oldPass, newPass string) error {
 }
 
 func (l *localDBSession) SendRequest(email string) error {
-	// TODO: this.
-	return errors.New("nyi")
+	return l.genericOperation("send request", func() error {
+		if err := l.eventDB.db.SendRequest(l.email, email); err != nil {
+			return err
+		}
+		l.eventDB.pushToUser(email, &Event{Type: EventRequestReceived, Email: l.email})
+		l.eventDB.pushToUser(l.email, &Event{Type: EventRequestSent, Email: email})
+		return nil
+	})
 }
 
 func (l *localDBSession) AcceptRequest(email string) error {
-	// TODO: this.
-	return errors.New("nyi")
+	return l.genericOperation("accept request", func() error {
+		statuses, err := l.eventDB.db.GetStatuses([]string{l.email, email})
+		if err != nil {
+			return err
+		}
+		ourStatus := l.eventDB.maskUserStatus(l.email, statuses[0])
+		otherStatus := l.eventDB.maskUserStatus(email, statuses[1])
+		if err := l.eventDB.db.AcceptRequest(l.email, email); err != nil {
+			return err
+		}
+		l.eventDB.pushToUser(email, &Event{Type: EventRequestAccepted, Email: l.email,
+			Status: ourStatus})
+		l.eventDB.pushToUser(l.email, &Event{Type: EventAcceptSent, Email: email,
+			Status: otherStatus})
+		return nil
+	})
 }
 
 func (l *localDBSession) DeleteBuddy(email string) error {
-	// TODO: this.
-	return errors.New("nyi")
+	return l.genericOperation("delete buddy", func() error {
+		if err := l.eventDB.db.DeleteBuddy(l.email, email); err != nil {
+			return err
+		}
+		l.eventDB.pushToUser(email, &Event{Type: EventBuddyRemoved, Email: l.email})
+		l.eventDB.pushToUser(l.email, &Event{Type: EventBuddyRemoved, Email: email})
+		return nil
+	})
 }
 
 func (l *localDBSession) SetStatus(status UserStatus) (err error) {
