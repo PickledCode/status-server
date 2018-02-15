@@ -8,9 +8,13 @@ import (
 	"github.com/unixpickle/essentials"
 )
 
-// An error which is returned from a DBSession when an API
-// call fails because the session was forcefully ended.
-var ErrIntentionalDisconnect = errors.New("the DB session was intentionally closed")
+var (
+	// An error which is returned from a DBSession when an API
+	// call fails because the session was forcefully ended.
+	ErrIntentionalDisconnect = errors.New("the DB session was intentionally closed")
+
+	ErrNotOpen = errors.New("not open")
+)
 
 type EventType int
 
@@ -189,15 +193,17 @@ func (l *localDBSession) SetStatus(status UserStatus) error {
 	return errors.New("nyi")
 }
 
-func (l *localDBSession) Close() error {
+func (l *localDBSession) Close() (err error) {
 	l.eventDB.lock.Lock()
 	defer l.eventDB.lock.Unlock()
-	if l.intentionalDiscon {
-		return ErrIntentionalDisconnect
-	} else if l.closed {
-		return errors.New("close DBSession: not open")
+	defer essentials.AddCtxTo("close DBSession", &err)
+	if l.closed {
+		return ErrNotOpen
 	}
 	l.closed = true
+	if l.intentionalDiscon {
+		return nil
+	}
 	for i, sess := range l.eventDB.sessions {
 		if sess == l {
 			essentials.UnorderedDelete(&l.eventDB.sessions, i)
@@ -211,9 +217,25 @@ func (l *localDBSession) Close() error {
 	panic("internal inconsistency: DBSession missing from list")
 }
 
-func (l *localDBSession) DisconnectOthers() error {
-	// TODO: this.
-	return errors.New("nyi")
+func (l *localDBSession) DisconnectOthers() (err error) {
+	l.eventDB.lock.Lock()
+	defer l.eventDB.lock.Unlock()
+	defer essentials.AddCtxTo("disconnect others", &err)
+	if l.closed {
+		return ErrNotOpen
+	} else if l.intentionalDiscon {
+		return ErrIntentionalDisconnect
+	}
+	for i := 0; i < len(l.eventDB.sessions); i++ {
+		sess := l.eventDB.sessions[i]
+		if sess != l && emailsEquivalent(sess.email, l.email) {
+			sess.intentionalDiscon = true
+			sess.clearAndPush(&Event{Type: EventIntentionalDisconnect})
+			essentials.OrderedDelete(&l.eventDB.sessions, i)
+			i--
+		}
+	}
+	return nil
 }
 
 func (l *localDBSession) pushEvent(e *Event) {
