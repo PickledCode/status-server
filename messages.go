@@ -22,6 +22,8 @@ const (
 	MsgTypeRemoveBuddy    = "remove_buddy"
 
 	// Control messages.
+	MsgTypeRegisterSuccess    = "register_success"
+	MsgTypeRegisterFailure    = "register_failure"
 	MsgTypeLoginSuccess       = "login_success"
 	MsgTypeLoginFailure       = "login_failure"
 	MsgTypeForcedLogout       = "forced_logout"
@@ -87,6 +89,10 @@ type LoginFailureMessage struct {
 	Message string `json:"message"`
 }
 
+type RegisterSuccessMessage struct{}
+
+type RegisterFailureMessage LoginFailureMessage
+
 type ForcedLogoutMessage struct{}
 
 func (*LoginMessage) Type() string {
@@ -141,6 +147,14 @@ func (*LoginFailureMessage) Type() string {
 	return MsgTypeLoginFailure
 }
 
+func (*RegisterSuccessMessage) Type() string {
+	return MsgTypeRegisterSuccess
+}
+
+func (*RegisterFailureMessage) Type() string {
+	return MsgTypeRegisterFailure
+}
+
 func (*ForcedLogoutMessage) Type() string {
 	return MsgTypeForcedLogout
 }
@@ -149,20 +163,22 @@ func (*ForcedLogoutMessage) Type() string {
 func DecodeMessage(msgType string, data []byte) (msg Message, err error) {
 	defer essentials.AddCtxTo("decode message", &err)
 	mapping := map[string]Message{
-		MsgTypeLogin:          &LoginMessage{},
-		MsgTypeRegister:       &RegisterMessage{},
-		MsgTypeRegisterVerify: &RegisterVerifyMessage{},
-		MsgTypeSetPassword:    &SetPasswordMessage{},
-		MsgTypeResetPassword:  &ResetPasswordMessage{},
-		MsgTypeLogout:         &LogoutMessage{},
-		MsgTypeLogoutOther:    &LogoutOtherMessage{},
-		MsgTypeSetStatus:      &SetStatusMessage{},
-		MsgTypeAddBuddy:       &AddBuddyMessage{},
-		MsgTypeAcceptRequest:  &AcceptRequestMessage{},
-		MsgTypeRemoveBuddy:    &RemoveBuddyMessage{},
-		MsgTypeLoginSuccess:   &LoginSuccessMessage{},
-		MsgTypeLoginFailure:   &LoginFailureMessage{},
-		MsgTypeForcedLogout:   &ForcedLogoutMessage{},
+		MsgTypeLogin:           &LoginMessage{},
+		MsgTypeRegister:        &RegisterMessage{},
+		MsgTypeRegisterVerify:  &RegisterVerifyMessage{},
+		MsgTypeSetPassword:     &SetPasswordMessage{},
+		MsgTypeResetPassword:   &ResetPasswordMessage{},
+		MsgTypeLogout:          &LogoutMessage{},
+		MsgTypeLogoutOther:     &LogoutOtherMessage{},
+		MsgTypeSetStatus:       &SetStatusMessage{},
+		MsgTypeAddBuddy:        &AddBuddyMessage{},
+		MsgTypeAcceptRequest:   &AcceptRequestMessage{},
+		MsgTypeRemoveBuddy:     &RemoveBuddyMessage{},
+		MsgTypeLoginSuccess:    &LoginSuccessMessage{},
+		MsgTypeLoginFailure:    &LoginFailureMessage{},
+		MsgTypeRegisterSuccess: &RegisterSuccessMessage{},
+		MsgTypeRegisterFailure: &RegisterFailureMessage{},
+		MsgTypeForcedLogout:    &ForcedLogoutMessage{},
 	}
 	if obj, ok := mapping[msgType]; ok {
 		if err := json.Unmarshal(data, obj); err != nil {
